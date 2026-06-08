@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import jsQR from 'jsqr';
+
 
 // Common SVG Icons for UI
 const KeyIcon = () => (
@@ -439,6 +441,23 @@ export default function StudentApp({
     }, 1500);
   };
 
+  const handleQrCodeResult = (data) => {
+    setScanText(`QR Code Terdeteksi! Memverifikasi...`);
+    setTimeout(() => {
+      const isUrl = data.startsWith('http://') || data.startsWith('https://');
+      if (isUrl) {
+        setEnteredToken('');
+        setEnteredUrl(data);
+        showToast('success', 'Link Ujian berhasil di-scan!');
+      } else {
+        setEnteredToken(data.toUpperCase());
+        setEnteredUrl('');
+        showToast('success', `Token Ujian '${data.toUpperCase()}' berhasil di-scan!`);
+      }
+      setCurrentScreen('welcome');
+    }, 1000);
+  };
+
   const handleScanQRCode = (source = 'main_menu') => {
     setScannerSource(source);
     setCurrentScreen('qr_scanner');
@@ -480,6 +499,51 @@ export default function StudentApp({
     }
     startCamera();
     return () => stopCamera();
+  }, [currentScreen, cameraFacingMode]);
+
+  // Loop for scanning QR codes
+  useEffect(() => {
+    if (currentScreen !== 'qr_scanner') return;
+
+    let active = true;
+    let animationFrameId;
+
+    const scan = () => {
+      if (!active) return;
+
+      const video = videoRef.current;
+      if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: 'dontInvert',
+          });
+
+          if (code && code.data) {
+            active = false;
+            handleQrCodeResult(code.data);
+            return;
+          }
+        }
+      }
+      animationFrameId = requestAnimationFrame(scan);
+    };
+
+    // Delay scan slightly to let camera stabilize
+    const timeoutId = setTimeout(() => {
+      animationFrameId = requestAnimationFrame(scan);
+    }, 500);
+
+    return () => {
+      active = false;
+      cancelAnimationFrame(animationFrameId);
+      clearTimeout(timeoutId);
+    };
   }, [currentScreen, cameraFacingMode]);
 
   const handleUnlockPin = (e) => {
