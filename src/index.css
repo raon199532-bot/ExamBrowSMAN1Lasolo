@@ -2271,4 +2271,70 @@ h1, h2, h3, h4, h5, h6 {
   border-color: #00d2ff;
 }
 
+/* Responsive media query for Mobile Devices (adapting student exam layout to phone screens) */
+@media (max-width: 768px) {
+  /* Stack the workspace grid vertically */
+  .workspace-layout {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+    padding: 0.5rem !important;
+  }
+
+  .role-siswa .workspace-layout {
+    padding: 0 !important;
+  }
+
+  /* Remove sticky positioning and padding for student section on mobile */
+  .student-section {
+    position: static !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Make student wrapper fill screen width */
+  .student-wrapper {
+    width: 100% !important;
+  }
+
+  /* Expand simulated phone mockup to fit full screen */
+  .phone-mockup {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+
+  /* Hide simulated hardware notch, speaker, and home indicator on actual phone screen */
+  .phone-notch,
+  .phone-home-indicator {
+    display: none !important;
+  }
+
+  /* Adjust status bar padding for actual mobile screen margins */
+  .phone-statusbar {
+    padding: 0 1rem !important;
+    height: 34px !important;
+  }
+
+  /* Hide app branding header on mobile for standalone student exam screen */
+  .role-siswa .app-header {
+    display: none !important;
+  }
+
+  /* Reset workspace padding in student role to allow mockup to cover 100% viewport */
+  .role-siswa .workspace-layout {
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    height: 100vh !important;
+    padding: 0 !important;
+  }
+}
+
 

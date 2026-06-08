@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 // Icons
 const SettingsIcon = () => (
@@ -33,7 +33,6 @@ export default function TeacherDashboard({
   const [localUrl, setLocalUrl] = useState(examUrl);
   const [localToken, setLocalToken] = useState(examToken);
   const [localPin, setLocalPin] = useState(masterPin);
-  const [showSettingsToast, setShowSettingsToast] = useState(false);
 
   // Stats calculation
   const totalStudents = sessions.length;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import StudentApp from './components/StudentApp';
 import TeacherDashboard from './components/TeacherDashboard';
 
@@ -179,7 +179,7 @@ export default function App() {
   };
 
   return (
-    <div className="app-container">
+    <div className={`app-container role-${role || 'none'}`}>
       
       {/* Dynamic Toast system */}
       {toast.show && (

@@ -1,19 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import jsQR from 'jsqr';
-
-
-// Common SVG Icons for UI
-const KeyIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-);
-
-const AlertIcon = () => (
-  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-);
-
-const LockIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-);
 
 const WifiIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20" strokeWidth="3"/></svg>
@@ -127,11 +113,70 @@ export default function StudentApp({
   
   const [cameraFacingMode, setCameraFacingMode] = useState('environment'); // 'environment' (back) | 'user' (front)
   const webviewBodyRef = useRef(null);
-  const sessionRef = useRef(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
 
-  // Request HTML5 Fullscreen mode helper
+  // 1. Toast Hint helper
+  const triggerToastHint = (text) => {
+    setToastHint({ show: true, text });
+    setTimeout(() => {
+      setToastHint({ show: false, text: '' });
+    }, 2000);
+  };
+
+  // 2. Session update helper
+  const updateSessionStatus = (status, blockReason = '') => {
+    if (!studentName) return;
+    const sessionId = studentName.toLowerCase().replace(/\s+/g, '-');
+    setSessions(prev => {
+      const idx = prev.findIndex(s => s.id === sessionId);
+      const now = new Date().toLocaleTimeString();
+      if (idx > -1) {
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          status,
+          lastActiveTime: now,
+          blockReason: blockReason || updated[idx].blockReason
+        };
+        return updated;
+      } else {
+        return [
+          ...prev,
+          {
+            id: sessionId,
+            name: studentName,
+            className: studentClass || 'XII MIPA 1',
+            status,
+            violationsCount: 0,
+            lastActiveTime: now,
+            blockReason
+          }
+        ];
+      }
+    });
+  };
+
+  // 3. Violation incrementer helper
+  const incrementSessionViolation = (breachType) => {
+    if (!studentName) return;
+    const sessionId = studentName.toLowerCase().replace(/\s+/g, '-');
+    setSessions(prev => {
+      return prev.map(s => {
+        if (s.id === sessionId) {
+          return {
+            ...s,
+            violationsCount: s.violationsCount + 1,
+            blockReason: breachType,
+            lastActiveTime: new Date().toLocaleTimeString()
+          };
+        }
+        return s;
+      });
+    });
+  };
+
+  // 4. Request HTML5 Fullscreen mode helper
   const enterFullscreen = () => {
     const docEl = document.documentElement;
     if (docEl.requestFullscreen) {
@@ -145,7 +190,7 @@ export default function StudentApp({
     }
   };
 
-  // Exit HTML5 Fullscreen helper
+  // 5. Exit HTML5 Fullscreen helper
   const exitFullscreen = () => {
     if (document.fullscreenElement) {
       if (document.exitFullscreen) {
@@ -160,10 +205,126 @@ export default function StudentApp({
     }
   };
 
+  // 6. Cheat Block screen trigger
+  const triggerBlock = (reason, isRemote = false) => {
+    setCurrentScreen('blocked');
+    exitFullscreen();
+    updateSessionStatus('Blocked', reason);
+    if (!isRemote) {
+      incrementSessionViolation(reason);
+      addViolationLog(studentName || 'Siswa', 'critical', reason);
+      showToast('error', `Keamanan terpicu: ${reason}`);
+    }
+  };
+
+  // 7. Automatic Violations handler
+  const handleAutomaticViolation = (reason) => {
+    incrementSessionViolation(reason);
+    addViolationLog(studentName || 'Siswa', 'warning', reason);
+    showToast('warn', `Keamanan terdeteksi: ${reason}`);
+  };
+
+  // 8. QR result handler
+  const handleQrCodeResult = (data) => {
+    setScanText(`QR Code Terdeteksi! Memverifikasi...`);
+    setTimeout(() => {
+      const isUrl = data.startsWith('http://') || data.startsWith('https://');
+      if (isUrl) {
+        setEnteredToken('');
+        setEnteredUrl(data);
+        showToast('success', 'Link Ujian berhasil di-scan!');
+      } else {
+        setEnteredToken(data.toUpperCase());
+        setEnteredUrl('');
+        showToast('success', `Token Ujian '${data.toUpperCase()}' berhasil di-scan!`);
+      }
+      setCurrentScreen('welcome');
+    }, 1000);
+  };
+
+  // 9. Camera Management
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  const startCamera = async () => {
+    stopCamera();
+    try {
+      const constraints = {
+        video: { facingMode: cameraFacingMode }
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(playErr => {
+          console.warn("Camera video play interrupted:", playErr);
+        });
+      }
+      streamRef.current = stream;
+    } catch (err) {
+      console.warn("Camera access denied or unavailable with facingMode, trying fallback:", err);
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        if (videoRef.current) {
+          videoRef.current.srcObject = fallbackStream;
+          videoRef.current.play().catch(playErr => {
+            console.warn("Fallback camera video play interrupted:", playErr);
+          });
+        }
+        streamRef.current = fallbackStream;
+      } catch (fallbackErr) {
+        console.error("Camera access failed completely:", fallbackErr);
+        showToast('error', 'Gagal mengakses kamera: ' + fallbackErr.message);
+      }
+    }
+  };
+
+  const toggleCameraFacing = () => {
+    setCameraFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
+    showToast('info', `Mengaktifkan kamera ${cameraFacingMode === 'environment' ? 'depan (selfie)' : 'belakang'}`);
+  };
+
+  // 10. Scan Trigger
+  const handleScanQRCode = (source = 'main_menu') => {
+    setScannerSource(source);
+    setCurrentScreen('qr_scanner');
+    setScanText('Arahkan kamera ke QR Code ujian... atau pilih template di bawah:');
+  };
+
+  // 11. Mock Scan Simulation
+  const triggerMockScan = (type) => {
+    setScanText(`QR Code [${type.toUpperCase()}] Terdeteksi! Memverifikasi...`);
+    setTimeout(() => {
+      if (type === 'default') {
+        setEnteredToken('');
+        setEnteredUrl(examUrl);
+        showToast('success', 'Link Ujian terisi otomatis (Bypass Token)!');
+      } else if (type === 'google') {
+        setEnteredToken('');
+        setEnteredUrl('https://docs.google.com/forms/d/e/1FAIpQLSfMockGoogleFormsMathQuiz/viewform');
+        showToast('success', 'Link Google Forms terisi otomatis (Bypass Token)!');
+      } else if (type === 'moodle') {
+        setEnteredToken('');
+        setEnteredUrl('https://moodle.sman1lasolo.sch.id/mod/quiz/view.php?id=455');
+        showToast('success', 'Link Moodle Sekolah terisi otomatis (Bypass Token)!');
+      }
+      setCurrentScreen('welcome');
+    }, 1500);
+  };
+
   // Sync entered URL with main state if unchanged by user
   useEffect(() => {
     if (examUrl && currentScreen === 'welcome') {
-      setEnteredUrl(examUrl);
+      const timer = setTimeout(() => {
+        setEnteredUrl(examUrl);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [examUrl, currentScreen]);
 
@@ -206,58 +367,6 @@ export default function StudentApp({
     return () => clearInterval(timer);
   }, [currentScreen]);
 
-  // Register or update student session
-  const updateSessionStatus = (status, blockReason = '') => {
-    if (!studentName) return;
-    const sessionId = studentName.toLowerCase().replace(/\s+/g, '-');
-    setSessions(prev => {
-      const idx = prev.findIndex(s => s.id === sessionId);
-      const now = new Date().toLocaleTimeString();
-      if (idx > -1) {
-        const updated = [...prev];
-        updated[idx] = {
-          ...updated[idx],
-          status,
-          lastActiveTime: now,
-          blockReason: blockReason || updated[idx].blockReason
-        };
-        return updated;
-      } else {
-        return [
-          ...prev,
-          {
-            id: sessionId,
-            name: studentName,
-            className: studentClass || 'XII MIPA 1',
-            status,
-            violationsCount: 0,
-            lastActiveTime: now,
-            blockReason
-          }
-        ];
-      }
-    });
-  };
-
-  // Increment Violation Count on session state
-  const incrementSessionViolation = (breachType) => {
-    if (!studentName) return;
-    const sessionId = studentName.toLowerCase().replace(/\s+/g, '-');
-    setSessions(prev => {
-      return prev.map(s => {
-        if (s.id === sessionId) {
-          return {
-            ...s,
-            violationsCount: s.violationsCount + 1,
-            blockReason: breachType,
-            lastActiveTime: new Date().toLocaleTimeString()
-          };
-        }
-        return s;
-      });
-    });
-  };
-
   // Check if teacher sent a remote block/unlock signal
   useEffect(() => {
     if (!studentName) return;
@@ -266,35 +375,22 @@ export default function StudentApp({
     if (!currentSession) return;
 
     if (currentSession.status === 'Blocked' && currentScreen === 'webview') {
-      triggerBlock("Kunci Remote dari Guru", true);
+      const timer = setTimeout(() => {
+        triggerBlock("Kunci Remote dari Guru", true);
+      }, 0);
+      return () => clearTimeout(timer);
     } else if (currentSession.status === 'Active' && currentScreen === 'blocked') {
       // Remote unlocked
-      setCurrentScreen('webview');
-      setUnlockPin('');
-      setUnlockError('');
-      enterFullscreen();
-      showToast('success', 'Ujian dibuka kembali oleh Guru.');
+      const timer = setTimeout(() => {
+        setCurrentScreen('webview');
+        setUnlockPin('');
+        setUnlockError('');
+        enterFullscreen();
+        showToast('success', 'Ujian dibuka kembali oleh Guru.');
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [sessions, studentName]);
-
-  // Trigger Cheat Block screen
-  const triggerBlock = (reason, isRemote = false) => {
-    setCurrentScreen('blocked');
-    exitFullscreen();
-    updateSessionStatus('Blocked', reason);
-    if (!isRemote) {
-      incrementSessionViolation(reason);
-      addViolationLog(studentName || 'Siswa', 'critical', reason);
-      showToast('error', `Keamanan terpicu: ${reason}`);
-    }
-  };
-
-  // Handle Automatic Violations without instantly locking the student screen
-  const handleAutomaticViolation = (reason) => {
-    incrementSessionViolation(reason);
-    addViolationLog(studentName || 'Siswa', 'warning', reason);
-    showToast('warn', `Keamanan terdeteksi: ${reason}`);
-  };
+  }, [sessions, studentName, currentScreen, showToast]);
 
   // FOCUS & INTERFACE GUARD SYSTEM: Detect focus loss, split screen, and fullscreen exit
   useEffect(() => {
@@ -311,15 +407,12 @@ export default function StudentApp({
     };
 
     const handleFullscreenChange = () => {
-      // If student exits fullscreen while on the webview screen, warn but don't lock
       if (!document.fullscreenElement && currentScreen === 'webview') {
         handleAutomaticViolation('Keluar dari Mode Layar Penuh (Fullscreen Exited)');
       }
     };
 
     const handleResize = () => {
-      // Split screen detection: check if height drops too low or changes significantly
-      // On mobile, height less than 450px usually indicates split-screen
       const height = window.innerHeight;
       if (height < 450) {
         handleAutomaticViolation('Deteksi Layar Belah / Split-screen (Tinggi Layar < 450px)');
@@ -343,7 +436,6 @@ export default function StudentApp({
   useEffect(() => {
     if (currentScreen !== 'webview') return;
 
-    // 1. Right Click Block
     const handleContextMenu = (e) => {
       e.preventDefault();
       triggerToastHint('Klik Kanan Diblokir!');
@@ -351,19 +443,15 @@ export default function StudentApp({
       incrementSessionViolation('Mencoba Klik Kanan');
     };
 
-    // 2. Keyboard shortcut blocks & Screenshot blackout simulation
     const handleKeyDown = (e) => {
-      // Copy Paste keys
       if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'v' || e.key === 'x')) {
         e.preventDefault();
         triggerToastHint('Copy & Paste Dinonaktifkan!');
         addViolationLog(studentName, 'warning', `Mencoba shortcut Copy/Paste (${e.key.toUpperCase()})`);
         incrementSessionViolation('Mencoba Copy/Paste');
-        // Clear clipboard
         navigator.clipboard.writeText('');
       }
 
-      // Print screen / screenshot simulation keys
       if (e.key === 'PrintScreen' || (e.altKey && e.key === 'PrintScreen') || (e.metaKey && e.shiftKey && (e.key === '3' || e.key === '4'))) {
         e.preventDefault();
         setBlackoutActive(true);
@@ -374,7 +462,6 @@ export default function StudentApp({
       }
     };
 
-    // 3. Clear clipboard buffer on window focus
     const handleFocus = () => {
       navigator.clipboard.writeText('');
     };
@@ -390,14 +477,7 @@ export default function StudentApp({
     };
   }, [currentScreen, studentName]);
 
-  const triggerToastHint = (text) => {
-    setToastHint({ show: true, text });
-    setTimeout(() => {
-      setToastHint({ show: false, text: '' });
-    }, 2000);
-  };
-
-  // Welcome Screen actions
+  // Welcome Screen start exam action
   const handleStartExam = (e) => {
     e.preventDefault();
     if (!studentName.trim()) {
@@ -405,7 +485,6 @@ export default function StudentApp({
       return;
     }
     
-    // If enteredUrl is provided, they are entering via link/QR.
     const isEnteringViaLinkOrQR = !!enteredUrl.trim();
     
     if (!isEnteringViaLinkOrQR && enteredToken.trim() !== examToken) {
@@ -413,7 +492,6 @@ export default function StudentApp({
       return;
     }
     
-    // Success, start exam
     setCurrentScreen('webview');
     updateSessionStatus('Active');
     addViolationLog(studentName, 'info', `Berhasil masuk ke ujian ${isEnteringViaLinkOrQR ? '(Link/QR)' : '(Token Valid)'}`);
@@ -421,77 +499,7 @@ export default function StudentApp({
     showToast('success', 'Ujian dimulai! Mode Fullscreen aktif.');
   };
 
-  const triggerMockScan = (type) => {
-    setScanText(`QR Code [${type.toUpperCase()}] Terdeteksi! Memverifikasi...`);
-    setTimeout(() => {
-      if (type === 'default') {
-        setEnteredToken('');
-        setEnteredUrl(examUrl);
-        showToast('success', 'Link Ujian terisi otomatis (Bypass Token)!');
-      } else if (type === 'google') {
-        setEnteredToken('');
-        setEnteredUrl('https://docs.google.com/forms/d/e/1FAIpQLSfMockGoogleFormsMathQuiz/viewform');
-        showToast('success', 'Link Google Forms terisi otomatis (Bypass Token)!');
-      } else if (type === 'moodle') {
-        setEnteredToken('');
-        setEnteredUrl('https://moodle.sman1lasolo.sch.id/mod/quiz/view.php?id=455');
-        showToast('success', 'Link Moodle Sekolah terisi otomatis (Bypass Token)!');
-      }
-      setCurrentScreen('welcome');
-    }, 1500);
-  };
-
-  const handleQrCodeResult = (data) => {
-    setScanText(`QR Code Terdeteksi! Memverifikasi...`);
-    setTimeout(() => {
-      const isUrl = data.startsWith('http://') || data.startsWith('https://');
-      if (isUrl) {
-        setEnteredToken('');
-        setEnteredUrl(data);
-        showToast('success', 'Link Ujian berhasil di-scan!');
-      } else {
-        setEnteredToken(data.toUpperCase());
-        setEnteredUrl('');
-        showToast('success', `Token Ujian '${data.toUpperCase()}' berhasil di-scan!`);
-      }
-      setCurrentScreen('welcome');
-    }, 1000);
-  };
-
-  const handleScanQRCode = (source = 'main_menu') => {
-    setScannerSource(source);
-    setCurrentScreen('qr_scanner');
-    setScanText('Arahkan kamera ke QR Code ujian... atau pilih template di bawah:');
-  };
-
-  const startCamera = async () => {
-    stopCamera();
-    try {
-      const constraints = {
-        video: { facingMode: cameraFacingMode }
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      streamRef.current = stream;
-    } catch (err) {
-      console.warn("Camera access denied or unavailable:", err);
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-  };
-
-  const toggleCameraFacing = () => {
-    setCameraFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
-    showToast('info', `Mengaktifkan kamera ${cameraFacingMode === 'environment' ? 'depan (selfie)' : 'belakang'}`);
-  };
-
+  // Camera Activation effect
   useEffect(() => {
     if (currentScreen !== 'qr_scanner') {
       stopCamera();
@@ -501,7 +509,7 @@ export default function StudentApp({
     return () => stopCamera();
   }, [currentScreen, cameraFacingMode]);
 
-  // Loop for scanning QR codes
+  // Scan loop effect with resolution scaling, try-catch, and zero-dimension safety guards
   useEffect(() => {
     if (currentScreen !== 'qr_scanner') return;
 
@@ -512,29 +520,47 @@ export default function StudentApp({
       if (!active) return;
 
       const video = videoRef.current;
-      if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: 'dontInvert',
-          });
-
-          if (code && code.data) {
-            active = false;
-            handleQrCodeResult(code.data);
-            return;
+      if (video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        try {
+          const maxDimension = 640;
+          let width = video.videoWidth;
+          let height = video.videoHeight;
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
           }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, width, height);
+            const imageData = ctx.getImageData(0, 0, width, height);
+            
+            const jsQrFunc = jsQR.default || jsQR;
+            const code = jsQrFunc(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'attemptBoth',
+            });
+
+            if (code && code.data) {
+              active = false;
+              handleQrCodeResult(code.data);
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn("Scanning frame capture failed:", err);
         }
       }
       animationFrameId = requestAnimationFrame(scan);
     };
 
-    // Delay scan slightly to let camera stabilize
     const timeoutId = setTimeout(() => {
       animationFrameId = requestAnimationFrame(scan);
     }, 500);
@@ -544,7 +570,7 @@ export default function StudentApp({
       cancelAnimationFrame(animationFrameId);
       clearTimeout(timeoutId);
     };
-  }, [currentScreen, cameraFacingMode]);
+  }, [currentScreen, cameraFacingMode, handleQrCodeResult]);
 
   const handleUnlockPin = (e) => {
     e.preventDefault();
@@ -687,7 +713,7 @@ export default function StudentApp({
               </div>
 
               <div className="lock-logo-wrapper">
-                <img src="/sman_1_lasolo_logo.png" alt="SMAN 1 Lasolo Logo" className="lock-logo" />
+                <img src={`${import.meta.env.BASE_URL}sman_1_lasolo_logo.png`} alt="SMAN 1 Lasolo Logo" className="lock-logo" />
               </div>
 
               <form onSubmit={handleCheckPassword} className="lock-form">
@@ -729,7 +755,7 @@ export default function StudentApp({
                 {/* Carousel Banner */}
                 <div className="menu-banner-wrapper">
                   {activeBannerSlide === 0 && (
-                    <img src="/exambrowser_banner.png" alt="Exambrowser Banner" className="menu-banner-img" />
+                    <img src={`${import.meta.env.BASE_URL}exambrowser_banner.png`} alt="Exambrowser Banner" className="menu-banner-img" />
                   )}
                   {activeBannerSlide === 1 && (
                     <div className="banner-slide-styled" style={{
@@ -759,7 +785,7 @@ export default function StudentApp({
                       color: '#ffffff',
                       padding: '1rem'
                     }}>
-                      <img src="/sman_1_lasolo_logo.png" alt="Logo" style={{ width: '45px', height: '45px', objectFit: 'contain' }} />
+                      <img src={`${import.meta.env.BASE_URL}sman_1_lasolo_logo.png`} alt="Logo" style={{ width: '45px', height: '45px', objectFit: 'contain' }} />
                       <div style={{ textAlign: 'left' }}>
                         <h4 style={{ fontSize: '0.8rem', fontWeight: 800 }}>SMAN 1 LASOLO</h4>
                         <p style={{ fontSize: '0.55rem', color: '#94a3b8', marginTop: '0.2rem', lineHeight: '1.2' }}>
@@ -831,7 +857,7 @@ export default function StudentApp({
             <div className="student-welcome">
               <div className="welcome-logo">
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.5rem' }}>
-                  <img src="/sman_1_lasolo_logo.png" alt="Logo" style={{ width: '60px', height: '60px', objectFit: 'contain' }} />
+                  <img src={`${import.meta.env.BASE_URL}sman_1_lasolo_logo.png`} alt="Logo" style={{ width: '60px', height: '60px', objectFit: 'contain' }} />
                 </div>
                 <h2>Exambrow Student</h2>
                 <p>Ujian Aman SMAN 1 Lasolo</p>
@@ -967,7 +993,7 @@ export default function StudentApp({
               
               <div className="scanner-body">
                 <div className="scanner-viewfinder">
-                  <video ref={videoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: cameraFacingMode === 'user' ? 'scaleX(-1)' : 'none' }}></video>
+                  <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: cameraFacingMode === 'user' ? 'scaleX(-1)' : 'none' }}></video>
                   <div className="scanner-line"></div>
                 </div>
               </div>
@@ -1270,7 +1296,7 @@ export default function StudentApp({
           {showInstructionModal && (
             <div className="rules-modal-overlay">
               <div className="rules-modal-box">
-                <img src="/sman_1_lasolo_logo.png" alt="SMAN 1 Lasolo Logo" className="rules-logo" />
+                <img src={`${import.meta.env.BASE_URL}sman_1_lasolo_logo.png`} alt="SMAN 1 Lasolo Logo" className="rules-logo" />
                 <h3 className="rules-title">EXAMBROWSER SMAN 1 LASOLO</h3>
                 <p className="rules-subtitle">
                   Dibawah ini fungsi telepon yang akan dimatikan saat ujian berlangsung dan akan normal kembali setelah keluar dari aplikasi.
